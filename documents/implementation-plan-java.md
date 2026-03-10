@@ -109,13 +109,14 @@ copilot-context-enabler/
 │   │   │       │
 │   │   │       ├── generators/
 │   │   │       │   ├── FileGenerator.java                   # Interface for all generators
-│   │   │       │   ├── AgentsMdGenerator.java               # AGENTS.md
-│   │   │       │   ├── InstructionGenerator.java            # copilot-instructions.md + path-specific
-│   │   │       │   ├── PromptFileGenerator.java             # .prompt.md files
-│   │   │       │   ├── CustomAgentGenerator.java            # .agent.md files
-│   │   │       │   ├── SkillGenerator.java                  # SKILL.md files
-│   │   │       │   ├── VSCodeConfigGenerator.java           # .vscode/ files
-│   │   │       │   └── GeneratorRegistry.java               # Discovers and runs all generators
+│   │   │       │   ├── GeneratorRegistry.java               # Runs Phase A then Phase B
+│   │   │       │   ├── DocumentationGenerator.java          # Phase A: documents/ generator
+│   │   │       │   ├── AgentsMdGenerator.java               # Phase B: AGENTS.md (mandatory doc loading)
+│   │   │       │   ├── InstructionGenerator.java            # Phase B: copilot-instructions + path-specific
+│   │   │       │   ├── PromptFileGenerator.java             # Phase B: .prompt.md (references docs)
+│   │   │       │   ├── CustomAgentGenerator.java            # Phase B: .agent.md (references docs)
+│   │   │       │   ├── SkillGenerator.java                  # Phase B: SKILL.md (references docs)
+│   │   │       │   └── VSCodeConfigGenerator.java           # Phase B: .vscode/ files
 │   │   │       │
 │   │   │       ├── orchestrator/
 │   │   │       │   └── RepoProcessor.java                   # Main processing loop
@@ -132,7 +133,15 @@ copilot-context-enabler/
 │   │       │   │   ├── workflows.ftl
 │   │       │   │   └── commands.ftl
 │   │       │   └── output/                                  # Freemarker output file templates
-│   │       │       ├── agents_md.ftl
+│   │       │       ├── docs/                                # Templates for documents/ (Phase A)
+│   │       │       │   ├── architecture.ftl
+│   │       │       │   ├── coding_conventions.ftl
+│   │       │       │   ├── api_design.ftl
+│   │       │       │   ├── testing_strategy.ftl
+│   │       │       │   ├── data_layer.ftl
+│   │       │       │   ├── build_and_commands.ftl
+│   │       │       │   └── common_workflows.ftl
+│   │       │       ├── agents_md.ftl                        # Includes mandatory doc loading
 │   │       │       ├── copilot_instructions.ftl
 │   │       │       ├── path_instruction.ftl
 │   │       │       ├── prompt_template.ftl
@@ -156,6 +165,7 @@ copilot-context-enabler/
 │       │       │   ├── MavenAnalyzerTest.java
 │       │       │   └── CopilotCliBridgeTest.java
 │       │       ├── generators/
+│       │       │   ├── DocumentationGeneratorTest.java
 │       │       │   ├── AgentsMdGeneratorTest.java
 │       │       │   ├── InstructionGeneratorTest.java
 │       │       │   ├── PromptFileGeneratorTest.java
@@ -255,34 +265,35 @@ copilot-context-enabler/
 
 ---
 
-### Phase 3: Agent File Generation (Week 5-7)
+### Phase 3: Documentation and Agent File Generation (Week 5-7)
 
-**Goal:** Build all six generators and the Freemarker output template system.
+**Goal:** Build the two-phase generation pipeline: first generate technical documentation (`documents/`), then generate agent files that reference those documents.
 
-#### Week 6: Core Generators
+#### Week 6: Documentation Generator (Phase A) and Core Agent Generators (Phase B)
 
 | Task | Detail | Output |
 |------|--------|--------|
-| 6.1 FileGenerator interface | `List<GeneratedFile> generate(AnalysisResult, AiContent, Path repoPath)` and `boolean shouldGenerate(AnalysisResult)` | Interface |
-| 6.2 Output Freemarker templates | Create `.ftl` templates for all output file types in `resources/templates/output/` | Template files |
-| 6.3 AgentsMdGenerator | Generate `AGENTS.md` combining static commands + AI persona/boundaries | Generator class |
-| 6.4 InstructionGenerator | Generate `copilot-instructions.md` + conditional path-specific files based on detected patterns | Generator class |
-| 6.5 VSCodeConfigGenerator | Generate/merge `.vscode/settings.json` (Jackson deep merge) and `extensions.json` | Generator class |
-| 6.6 GeneratorRegistry | Discovers all `FileGenerator` implementations; runs applicable ones based on `shouldGenerate()` and config flags | Registry class |
-| 6.7 Unit tests | Test each generator with mock inputs; verify output file structure and content | Test classes |
+| 6.1 FileGenerator interface | `List<GeneratedFile> generate(AnalysisResult, AiContent, Path repoPath, List<GeneratedFile> generatedDocs)` and `boolean shouldGenerate(AnalysisResult)` | Interface |
+| 6.2 DocumentationGenerator | Generate `documents/` directory with detailed technical docs: `architecture.md`, `coding-conventions.md`, `api-design.md`, `testing-strategy.md`, `data-layer.md`, `build-and-commands.md`, `common-workflows.md`. Conditional: only create docs for detected patterns. Each doc contains specific code examples and real file paths | `DocumentationGenerator` class |
+| 6.3 Documentation Freemarker templates | Create `.ftl` templates for each document type in `resources/templates/output/docs/` | Template files |
+| 6.4 AgentsMdGenerator | Generate `AGENTS.md` with **mandatory context loading section** that lists all generated `documents/` files by path, instructing the agent to read them before any task. Combines static commands + AI persona/boundaries | Generator class |
+| 6.5 InstructionGenerator | Generate `copilot-instructions.md` + conditional path-specific files based on detected patterns | Generator class |
+| 6.6 VSCodeConfigGenerator | Generate/merge `.vscode/settings.json` (Jackson deep merge) and `extensions.json` | Generator class |
+| 6.7 GeneratorRegistry | Discovers all `FileGenerator` implementations; runs DocumentationGenerator first (Phase A), then all others (Phase B) with the generated doc list | Registry class |
+| 6.8 Unit tests | Test DocumentationGenerator (conditional doc creation, content structure); test AgentsMdGenerator (verify mandatory loading section lists generated docs) | Test classes |
 
 #### Week 7: Advanced Generators and Idempotency
 
 | Task | Detail | Output |
 |------|--------|--------|
-| 7.1 PromptFileGenerator | Generate `.prompt.md` files with YAML frontmatter, `${input:*}` variables, step-by-step instructions | Generator class |
-| 7.2 CustomAgentGenerator | Generate `.agent.md` files for test-specialist, api-reviewer, migration-helper (conditional on detected stack) | Generator class |
-| 7.3 SkillGenerator | Generate `SKILL.md` files in subdirectories for multi-step workflows (conditional) | Generator class |
+| 7.1 PromptFileGenerator | Generate `.prompt.md` files with YAML frontmatter, `${input:*}` variables, step-by-step instructions. Each prompt references relevant generated docs (e.g., `add-rest-endpoint.prompt.md` references `documents/api-design.md` and `documents/common-workflows.md`) | Generator class |
+| 7.2 CustomAgentGenerator | Generate `.agent.md` files for test-specialist, api-reviewer, migration-helper (conditional). Each agent's instructions include directives to read relevant docs (e.g., `test-specialist` reads `documents/testing-strategy.md`) | Generator class |
+| 7.3 SkillGenerator | Generate `SKILL.md` files in subdirectories for multi-step workflows (conditional). Skills reference relevant docs for context | Generator class |
 | 7.4 JSON merge logic | Jackson-based deep merge for `settings.json`: read existing -> overlay new keys -> write; preserve non-Copilot settings | Utility method |
 | 7.5 Markdown idempotency | Overwrite markdown files on re-run (generate fresh from latest analysis); optionally preserve user-added sections | Overwrite strategy |
-| 7.6 Unit tests | Test conditional generation; test JSON merge with existing content; test idempotent re-run | Test classes |
+| 7.6 Unit tests | Test conditional generation; test JSON merge with existing content; test idempotent re-run; verify agent files reference generated docs | Test classes |
 
-**Phase 3 deliverable:** All generators produce valid output; conditional generation works; idempotency verified.
+**Phase 3 deliverable:** DocumentationGenerator produces detailed docs; all agent generators reference those docs; conditional generation and idempotency verified.
 
 ---
 

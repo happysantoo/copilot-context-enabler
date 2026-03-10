@@ -87,10 +87,11 @@ copilot-context-enabler/
 │       │   ├── base.py                     # BaseGenerator abstract class
 │       │   ├── agents_md.py                # AgentsMdGenerator
 │       │   ├── instructions.py             # InstructionGenerator
-│       │   ├── prompt_files.py             # PromptFileGenerator
-│       │   ├── custom_agents.py            # CustomAgentGenerator
-│       │   ├── skills.py                   # SkillGenerator
-│       │   └── vscode_config.py            # VSCodeConfigGenerator
+│       │   ├── documentation.py             # Phase A: documents/ generator
+│       │   ├── prompt_files.py             # Phase B: PromptFileGenerator
+│       │   ├── custom_agents.py            # Phase B: CustomAgentGenerator
+│       │   ├── skills.py                   # Phase B: SkillGenerator
+│       │   └── vscode_config.py            # Phase B: VSCodeConfigGenerator
 │       │
 │       ├── templates/
 │       │   ├── prompts/                    # Jinja2 templates for Copilot CLI prompts
@@ -100,7 +101,15 @@ copilot-context-enabler/
 │       │   │   ├── workflows.md.j2
 │       │   │   └── commands.md.j2
 │       │   └── output/                     # Jinja2 templates for generated files
-│       │       ├── agents_md.md.j2
+│       │       ├── docs/                   # Templates for documents/ (Phase A)
+│       │       │   ├── architecture.md.j2
+│       │       │   ├── coding_conventions.md.j2
+│       │       │   ├── api_design.md.j2
+│       │       │   ├── testing_strategy.md.j2
+│       │       │   ├── data_layer.md.j2
+│       │       │   ├── build_and_commands.md.j2
+│       │       │   └── common_workflows.md.j2
+│       │       ├── agents_md.md.j2         # Template includes mandatory doc loading
 │       │       ├── copilot_instructions.md.j2
 │       │       ├── path_instruction.md.j2
 │       │       ├── prompt_template.md.j2
@@ -120,6 +129,7 @@ copilot-context-enabler/
 │   ├── test_static_analyzer.py
 │   ├── test_copilot_bridge.py
 │   ├── test_generators/
+│   │   ├── test_documentation.py
 │   │   ├── test_agents_md.py
 │   │   ├── test_instructions.py
 │   │   ├── test_prompt_files.py
@@ -202,28 +212,29 @@ copilot-context-enabler/
 
 ---
 
-### Phase 3: Agent File Generation (Week 4-6)
+### Phase 3: Documentation and Agent File Generation (Week 4-6)
 
-**Goal:** Build all six file generators and the output template system.
+**Goal:** Build the two-phase generation pipeline: first generate technical documentation (`documents/`), then generate agent files that reference those documents.
 
-#### Week 5: Core Generators (AGENTS.md, Instructions, VS Code)
+#### Week 5: Documentation Generator (Phase A) and Core Agent Generators (Phase B)
 
 | Task | Detail | Output |
 |------|--------|--------|
-| 5.1 BaseGenerator | Abstract base class with common interface: `generate(analysis, ai_content, repo_path) -> list[GeneratedFile]` | `generators/base.py` |
-| 5.2 Output templates | Create Jinja2 templates for all output file types | `templates/output/*.j2` |
-| 5.3 AgentsMdGenerator | Generate `AGENTS.md` combining static commands + AI persona/boundaries | `generators/agents_md.py` |
-| 5.4 InstructionGenerator | Generate `copilot-instructions.md` + conditional path-specific files based on detected patterns | `generators/instructions.py` |
-| 5.5 VSCodeConfigGenerator | Generate/merge `.vscode/settings.json` and `extensions.json` | `generators/vscode_config.py` |
-| 5.6 Unit tests | Test each generator with mock AnalysisResult and AI content; verify output structure | `test_generators/` |
+| 5.1 BaseGenerator | Abstract base class with common interface: `generate(analysis, ai_content, repo_path, generated_docs) -> list[GeneratedFile]` | `generators/base.py` |
+| 5.2 DocumentationGenerator | Generate `documents/` directory with detailed technical docs: `architecture.md`, `coding-conventions.md`, `api-design.md`, `testing-strategy.md`, `data-layer.md`, `build-and-commands.md`, `common-workflows.md`. Conditional: only create docs for detected patterns. Each doc contains specific code examples and real file paths from the repo | `generators/documentation.py` |
+| 5.3 Documentation output templates | Jinja2 templates for each document type in `templates/output/docs/` | `templates/output/docs/*.j2` |
+| 5.4 AgentsMdGenerator | Generate `AGENTS.md` with **mandatory context loading section** that lists all generated `documents/` files by path, instructing the agent to read them before any task. Combines static commands + AI persona/boundaries | `generators/agents_md.py` |
+| 5.5 InstructionGenerator | Generate `copilot-instructions.md` + conditional path-specific files based on detected patterns | `generators/instructions.py` |
+| 5.6 VSCodeConfigGenerator | Generate/merge `.vscode/settings.json` and `extensions.json` | `generators/vscode_config.py` |
+| 5.7 Unit tests | Test DocumentationGenerator (conditional doc creation, content structure); test AgentsMdGenerator (verify mandatory loading section lists generated docs) | `test_generators/` |
 
 #### Week 6: Advanced Generators (Prompts, Agents, Skills) and Idempotency
 
 | Task | Detail | Output |
 |------|--------|--------|
-| 6.1 PromptFileGenerator | Generate `.prompt.md` files for detected workflows; include YAML frontmatter and `${input:*}` variables | `generators/prompt_files.py` |
-| 6.2 CustomAgentGenerator | Generate `.agent.md` files for test-specialist, api-reviewer, migration-helper (conditional) | `generators/custom_agents.py` |
-| 6.3 SkillGenerator | Generate `SKILL.md` files in subdirectories for multi-step workflows (conditional) | `generators/skills.py` |
+| 6.1 PromptFileGenerator | Generate `.prompt.md` files for detected workflows; include YAML frontmatter and `${input:*}` variables. Each prompt references relevant generated docs (e.g., `add-rest-endpoint.prompt.md` references `documents/api-design.md` and `documents/common-workflows.md`) | `generators/prompt_files.py` |
+| 6.2 CustomAgentGenerator | Generate `.agent.md` files for test-specialist, api-reviewer, migration-helper (conditional). Each agent's instructions include directives to read relevant docs (e.g., `test-specialist` reads `documents/testing-strategy.md`) | `generators/custom_agents.py` |
+| 6.3 SkillGenerator | Generate `SKILL.md` files in subdirectories for multi-step workflows (conditional). Skills reference relevant docs for context | `generators/skills.py` |
 | 6.4 Idempotency logic | For JSON files: deep merge. For markdown: overwrite (with option to merge sections). Detect existing files before writing | Integrated into generators |
 | 6.5 Unit tests | Test conditional generation (e.g., skip migration files when no Flyway detected) | `test_generators/` |
 

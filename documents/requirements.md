@@ -112,12 +112,37 @@ The tool shall invoke GitHub Copilot CLI to generate project-specific context fr
 
 ### FR-5: Agent Context File Generation
 
-The tool shall generate the following files per repository. Each generator combines static analysis results with AI-generated content using templates.
+The tool shall generate files per repository in two phases. **Phase A** generates detailed technical documentation that captures deep codebase knowledge. **Phase B** generates agent context files that reference that documentation, ensuring the agent always loads project knowledge before acting.
 
-#### FR-5.1: `AGENTS.md` (Root-Level Agent Instructions)
+#### FR-5.0: `documents/` (Technical Documentation -- Generated First)
+
+The tool shall generate a `documents/` directory in each target repository containing detailed technical documentation derived from codebase analysis. These documents serve as the **persistent knowledge base** that the agent loads before every task.
+
+| Document | Content |
+|----------|---------|
+| `documents/architecture.md` | System architecture, module responsibilities, layering patterns (e.g., controller-service-repository), inter-module dependencies, design patterns in use |
+| `documents/coding-conventions.md` | Naming patterns, code style, error handling approach, logging standards, null-handling strategy, common idioms used in this codebase |
+| `documents/api-design.md` | REST/GraphQL/gRPC patterns, URL structure, request/response formats, authentication/authorization, versioning strategy, error response format |
+| `documents/testing-strategy.md` | Test frameworks, unit vs integration test patterns, fixture strategies, mocking approach, test naming conventions, CI test configuration |
+| `documents/data-layer.md` | Database schema patterns, ORM usage, migration strategy (Flyway/Liquibase), repository patterns, transaction management |
+| `documents/build-and-commands.md` | Build tool configuration, all build/test/lint/run commands with flags, CI/CD pipeline overview, dependency management approach |
+| `documents/common-workflows.md` | Step-by-step procedures for the most frequent development tasks (adding an endpoint, adding a service, writing tests, creating migrations, etc.) |
+
+Only generate documents relevant to what is detected in the codebase (e.g., skip `data-layer.md` if no database dependencies are found).
+
+Each document shall:
+- Be detailed enough to serve as onboarding material for a new developer
+- Contain specific code examples extracted from the actual codebase (not generic examples)
+- Reference actual file paths in the repository
+- Be formatted as clean markdown suitable for both human reading and AI consumption
+
+#### FR-5.1: `AGENTS.md` (Root-Level Agent Instructions -- References Documents)
+
+The generated `AGENTS.md` shall include a **mandatory context loading section** that instructs the agent to read the generated `documents/` directory before performing any task. This ensures the agent starts every session with full project knowledge regardless of who invoked it or what prompt they wrote.
 
 | Section | Content |
 |---------|---------|
+| **Mandatory context loading** | Explicit instruction to read all files in `documents/` before any task, in a specified order. Lists every generated document by path with a one-line description of what knowledge it provides |
 | Persona | Role description (e.g., "You are a backend Java developer working on a Spring Boot 3.x microservice") |
 | Tech stack | Language, framework, build tool, database, key libraries with versions |
 | Project structure | Directory map showing where controllers, services, repositories, DTOs, tests, migrations live |

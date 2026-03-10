@@ -34,7 +34,11 @@ flowchart TB
         PromptEngine[PromptTemplateEngine]
     end
 
-    subgraph generation ["File Generation Layer (Agent Mode)"]
+    subgraph documentation ["Documentation Generation (Phase A)"]
+        DocGen[DocumentationGenerator]
+    end
+
+    subgraph generation ["Agent File Generation (Phase B)"]
         AgentsMdGen[AgentsMdGenerator]
         InstructionGen[InstructionGenerator]
         PromptFileGen[PromptFileGenerator]
@@ -55,12 +59,14 @@ flowchart TB
     Runner --> StaticAnalyzer
     StaticAnalyzer --> CopilotBridge
     CopilotBridge --> PromptEngine
-    StaticAnalyzer --> AgentsMdGen
+    StaticAnalyzer --> DocGen
+    CopilotBridge --> DocGen
+    DocGen --> AgentsMdGen
+    DocGen --> InstructionGen
+    DocGen --> PromptFileGen
+    DocGen --> CustomAgentGen
+    DocGen --> SkillGen
     CopilotBridge --> AgentsMdGen
-    CopilotBridge --> InstructionGen
-    CopilotBridge --> PromptFileGen
-    CopilotBridge --> CustomAgentGen
-    CopilotBridge --> SkillGen
     AgentsMdGen --> TemplateEngine
     InstructionGen --> TemplateEngine
     PromptFileGen --> TemplateEngine
@@ -247,21 +253,69 @@ Manages the templates used to construct Copilot CLI prompts. Templates are param
 | `apiLayer` | StaticAnalyzer |
 | `databaseStack` | StaticAnalyzer |
 
-### 2.4 File Generation Layer
+### 2.4 Documentation Generation Layer (Phase A)
+
+Documentation is generated FIRST, before any agent context files. This creates the persistent knowledge base that all agent files will reference.
+
+#### DocumentationGenerator
+
+Generates detailed technical documents in the `documents/` directory of the target repository. Each document is produced from a combination of static analysis results and AI-generated content.
+
+**Generated documents:**
+
+| Document | Primary Source | Content |
+|----------|---------------|---------|
+| `documents/architecture.md` | Copilot CLI (Prompt 1) + StaticAnalyzer | Module structure, design patterns, layering, dependencies |
+| `documents/coding-conventions.md` | Copilot CLI (Prompt 2) + StaticAnalyzer | Naming, style, error handling, logging, idioms |
+| `documents/api-design.md` | Copilot CLI (Prompt 2) + StaticAnalyzer | REST/GraphQL patterns, URL structure, auth, error format |
+| `documents/testing-strategy.md` | Copilot CLI (Prompt 2) + StaticAnalyzer | Frameworks, patterns, fixtures, mocking approach |
+| `documents/data-layer.md` | Copilot CLI (Prompt 1+3) + StaticAnalyzer | Schema patterns, ORM, migrations, transactions |
+| `documents/build-and-commands.md` | StaticAnalyzer (primary) + Copilot CLI (Prompt 4) | Build/test/lint/run commands, CI/CD, dependency management |
+| `documents/common-workflows.md` | Copilot CLI (Prompt 3) | Step-by-step procedures for frequent development tasks |
+
+Conditional generation: documents are only created when relevant patterns are detected (e.g., `data-layer.md` is skipped if no database dependencies are found, `api-design.md` is skipped if no REST/GraphQL layer is detected).
+
+Each document contains:
+- Specific code examples extracted from the actual codebase
+- References to actual file paths in the repository
+- Enough detail to onboard a new developer
+
+**Output:** A list of `GeneratedFile` entries representing the created documents. This list is passed to Phase B generators so they can reference the document paths.
+
+### 2.5 Agent File Generation Layer (Phase B)
+
+Agent files are generated AFTER documentation. All agent files reference the generated `documents/` directory, ensuring the agent loads deep project knowledge before acting.
 
 All generators follow the same pattern:
-1. Accept `AnalysisResult` (from StaticAnalyzer) and AI-generated content (from CopilotCLIBridge)
+1. Accept `AnalysisResult` (from StaticAnalyzer), AI-generated content (from CopilotCLIBridge), and the list of generated document paths (from DocumentationGenerator)
 2. Merge static + AI content using an output template
 3. Write the generated file to the cloned repository
 4. Return the file path and metadata for the report
 
 #### AgentsMdGenerator
 
-Generates the root `AGENTS.md` file.
+Generates the root `AGENTS.md` file. The critical difference from a naive implementation is the **mandatory context loading section** that references the generated documentation.
 
 **Template structure:**
 ```markdown
 # Agent Instructions
+
+## Mandatory Context Loading
+
+Before performing any task on this project, you MUST read and internalize
+the project documentation stored in the `documents/` directory. These files
+are the single source of truth for this project's architecture, patterns,
+and conventions.
+
+**Always read these files first:**
+
+{for each generated_doc in documents}
+- `{generated_doc.path}` -- {generated_doc.description}
+{end for}
+
+You must align every code change with what these documents specify.
+If a task contradicts the documented patterns, flag the conflict
+before proceeding.
 
 ## Persona
 {ai_generated_persona}
@@ -283,6 +337,14 @@ Generates the root `AGENTS.md` file.
 
 ## Boundaries
 {ai_generated_boundaries}
+
+### Never
+- Never make changes that contradict the patterns documented in `documents/`
+{ai_generated_never_rules}
+
+### Always
+- Always read `documents/` before starting any task
+{ai_generated_always_rules}
 
 ## Conventions
 {ai_generated_conventions_summary}
@@ -308,7 +370,7 @@ Generates `.github/prompts/*.prompt.md` files for detected workflows.
 - If migration tool detected -> generate `database-migration.prompt.md`
 - If DTO/mapper pattern detected -> generate `add-dto-mapping.prompt.md`
 
-Each prompt file includes YAML frontmatter (`agent: agent`, `tools: [...]`) and a structured task description with `${input:*}` variables.
+Each prompt file includes YAML frontmatter (`agent: agent`, `tools: [...]`) and a structured task description with `${input:*}` variables. Prompt templates reference the generated `documents/` for context (e.g., `add-rest-endpoint.prompt.md` references `documents/api-design.md` and `documents/common-workflows.md`).
 
 #### CustomAgentGenerator
 
@@ -319,7 +381,7 @@ Generates `.github/agents/*.agent.md` files for specialized roles.
 - If API layer detected -> generate `api-reviewer.agent.md`
 - If migration tool detected -> generate `migration-helper.agent.md`
 
-Each agent file includes YAML frontmatter (`name`, `description`, `tools`) and a detailed persona with instructions and boundaries.
+Each agent file includes YAML frontmatter (`name`, `description`, `tools`) and a detailed persona with instructions and boundaries. Each custom agent's instructions include a directive to read the relevant documents from `documents/` (e.g., `test-specialist` references `documents/testing-strategy.md`, `migration-helper` references `documents/data-layer.md`).
 
 #### SkillGenerator
 
@@ -423,8 +485,8 @@ sequenceDiagram
     participant G as GitOperations
     participant SA as StaticAnalyzer
     participant CLI as CopilotCLIBridge
-    participant Gen as FileGenerators
-    participant R as ReportGenerator
+    participant DocGen as DocumentationGenerator
+    participant AgentGen as AgentFileGenerators
 
     O->>BB: List repos for project (paginated)
     BB-->>O: Repo list with clone URLs
@@ -451,14 +513,19 @@ sequenceDiagram
         O->>CLI: Prompt 4 - Build/test/lint commands
         CLI-->>O: Command documentation (markdown)
 
-        O->>Gen: Generate AGENTS.md
-        O->>Gen: Generate copilot-instructions.md
-        O->>Gen: Generate path-specific instructions
-        O->>Gen: Generate prompt templates
-        O->>Gen: Generate custom agents
-        O->>Gen: Generate skills
-        O->>Gen: Generate .vscode configs
-        Gen-->>O: List of generated file paths
+        note over O,DocGen: Phase A - Generate Technical Documentation
+        O->>DocGen: Generate documents/ (analysis + AI content)
+        DocGen-->>O: List of generated doc paths
+
+        note over O,AgentGen: Phase B - Generate Agent Files (referencing docs)
+        O->>AgentGen: Generate AGENTS.md (with mandatory doc loading)
+        O->>AgentGen: Generate copilot-instructions.md
+        O->>AgentGen: Generate path-specific instructions
+        O->>AgentGen: Generate prompt templates (reference docs)
+        O->>AgentGen: Generate custom agents (reference docs)
+        O->>AgentGen: Generate skills (reference docs)
+        O->>AgentGen: Generate .vscode configs
+        AgentGen-->>O: List of generated file paths
 
         O->>G: Stage, commit, push
         G-->>O: Push confirmation
@@ -467,8 +534,7 @@ sequenceDiagram
         BB-->>O: PR URL
     end
 
-    O->>R: Aggregate all repo results
-    R-->>O: JSON + Markdown report
+    O->>O: Generate execution report
 ```
 
 ### Concurrency Model
@@ -560,9 +626,16 @@ After the tool runs, a target repository will contain the following new files:
 
 ```
 <repository-root>/
-├── AGENTS.md
+├── AGENTS.md                                       (references documents/)
+├── documents/                                      (Phase A -- generated first)
+│   ├── architecture.md
+│   ├── coding-conventions.md
+│   ├── api-design.md                               (if REST/GraphQL detected)
+│   ├── testing-strategy.md
+│   ├── data-layer.md                               (if database detected)
+│   ├── build-and-commands.md
+│   └── common-workflows.md
 ├── .github/
-│   ├── copilot-instructions.md
 │   ├── instructions/
 │   │   ├── test-conventions.instructions.md
 │   │   ├── controller-patterns.instructions.md
