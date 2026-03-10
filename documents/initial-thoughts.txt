@@ -1,0 +1,18 @@
+All my applications are storred in bitbucket project/repository structure. Most of the applications are written in java.
+I have been asked by managment on how can we use AI to enhance the current developer productivity.
+Our code editor of choice and availability is vscode with copilot. 
+
+ANother question thats consistently getting asked is How can i get a deterministic performance on the AI in every developer's machine. 
+Today some of them get great output on copilot but the others just dont see the same gain. 
+
+My theory is that the required copilot context and considerations on one devloper's workspace is not the same as other. And the remedy is to add copilot-instructions , skill.md and other chatmode files with all the project's logic considered.
+Is this thinking valid ? Also if its valid , make a plan to write a script/agent(if it can be called that)
+
+1. checkout the git repo 
+2. create a new branch
+3. invoke copilot.cli by passing in an appropriate prompt to understand the project's source code and document all the required knowledge on the MArkdown files.
+4. Enhance the copilot experience by using .vscode folder under the project by creating appropriate chatmodes and copilot-insturctions and otger files.
+5. Once this is done , find a way to identify the peformance gains and developer productivity increase if possible. 
+6. commit the changes to the code and create a PR.
+
+Assume the source code is stored under butbucket repositories classified under bitbucket projects as appropriate under business products.
